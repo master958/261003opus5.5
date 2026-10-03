@@ -1,0 +1,23 @@
+name: selftest
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 의존성 설치 (three 버전은 solar-system.html 의 importmap 과 같아야 함)
+        run: |
+          VERSION=$(grep -o 'three@[0-9.]*' solar-system.html | head -1 | cut -d@ -f2)
+          npm install --no-save --no-package-lock playwright "three@${VERSION}"
+          npx playwright install --with-deps chromium
+      - name: ?selftest 실행
+        run: node .github/scripts/selftest.mjs
