@@ -1,0 +1,1339 @@
+<!-- 태양계(태양 + 8개 행성)의 궤도·크기·자전을 three.js로 탐색하며 배우는 한국어 학습용 단일 파일 웹앱 -->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>태양계 탐험</title>
+<style>
+  :root {
+    --bg: #02030a;
+    --panel: rgba(10, 14, 30, 0.74);
+    --panel-border: rgba(255, 255, 255, 0.13);
+    --text: #e9edf7;
+    --text-dim: #9aa6c2;
+    --accent: #ffb84d;
+    --accent-soft: rgba(255, 184, 77, 0.18);
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); overflow: hidden; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    font-size: 14px; line-height: 1.45;
+  }
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { display: block; width: 100%; height: 100%; outline: none; }
+  #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+  .label {
+    position: absolute; left: 0; top: 0; white-space: nowrap; will-change: transform;
+    font-size: 12px; font-weight: 600; color: #fff; text-shadow: 0 0 4px #000, 0 0 2px #000;
+    padding: 0 2px;
+  }
+  .label.active { color: var(--accent); }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--panel-border); border-radius: var(--radius);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  }
+  button {
+    font: inherit; color: var(--text); background: rgba(255, 255, 255, 0.07);
+    border: 1px solid var(--panel-border); border-radius: 8px; padding: 8px 12px; min-height: 40px;
+    cursor: pointer; touch-action: manipulation;
+  }
+  button:hover { background: rgba(255, 255, 255, 0.14); }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+
+  #topbar { position: fixed; top: 10px; left: 12px; right: 12px; display: flex; align-items: center; gap: 14px; pointer-events: none; }
+  #topbar h1 { margin: 0; font-size: 18px; letter-spacing: 0.02em; white-space: nowrap; }
+  #scaleNote { margin: 0; color: var(--text-dim); font-size: 13px; }
+
+  #sidebar { position: fixed; top: 52px; left: 12px; width: 190px; padding: 12px; display: flex; flex-direction: column; gap: 10px; max-height: calc(100vh - 150px); overflow-y: auto; }
+  #sidebar h2 { margin: 0; font-size: 12px; font-weight: 600; color: var(--text-dim); letter-spacing: 0.06em; }
+  #planetList { display: flex; flex-direction: column; gap: 4px; }
+  .planet-btn { display: flex; align-items: center; gap: 10px; text-align: left; padding: 6px 10px; min-height: 36px; }
+  .planet-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; box-shadow: 0 0 6px currentColor; }
+  .segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+  .segmented button { padding: 6px 4px; font-size: 13px; }
+  .toggle { display: flex; align-items: center; gap: 8px; min-height: 32px; cursor: pointer; }
+  .toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
+
+  #infoPanel { position: fixed; top: 52px; right: 12px; width: 320px; max-height: calc(100vh - 150px); overflow-y: auto; padding: 14px 16px; }
+  #infoPanel header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  #infoPanel h2 { margin: 0; font-size: 22px; }
+  #infoClose { min-height: 36px; padding: 4px 10px; }
+  #infoPanel dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; }
+  #infoPanel dt { color: var(--text-dim); }
+  #infoPanel dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  #infoPanel h3 { margin: 14px 0 6px; font-size: 13px; color: var(--accent); }
+  #infoFacts { margin: 0; padding-left: 18px; }
+  #infoFacts li { margin-bottom: 6px; }
+
+  #timebar {
+    position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
+    padding: 10px 14px; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px 14px;
+    max-width: calc(100vw - 24px);
+  }
+  #dateText { font-size: 18px; font-weight: 700; min-width: 9.5em; text-align: center; font-variant-numeric: tabular-nums; }
+  .speed-group { display: flex; flex-wrap: wrap; gap: 4px; }
+  .speed-group button { padding: 6px 10px; font-size: 13px; }
+  #playBtn { min-width: 96px; }
+
+  #fatal { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; font-size: 16px; }
+
+  @media (max-width: 760px) {
+    #topbar { flex-direction: column; align-items: flex-start; gap: 2px; }
+    #scaleNote { font-size: 12px; }
+    #sidebar { top: 72px; left: 8px; right: 8px; width: auto; max-height: 24vh; padding: 8px; }
+    #planetList { flex-direction: row; flex-wrap: wrap; }
+    .planet-btn { padding: 4px 8px; min-height: 34px; }
+    #infoPanel { top: auto; right: 8px; left: 8px; bottom: 126px; width: auto; max-height: 30vh; padding: 10px 12px; }
+    #timebar { left: 8px; right: 8px; bottom: 8px; transform: none; max-width: none; padding: 8px; gap: 6px 8px; }
+    #playBtn { order: 1; min-width: 0; padding: 6px 10px; }
+    #dateText { order: 2; font-size: 15px; min-width: 0; flex: 1; }
+    #todayBtn { order: 3; padding: 6px 10px; font-size: 13px; }
+    #speedGroup { order: 4; width: 100%; flex-wrap: nowrap; }
+    #speedGroup button { flex: 1; padding: 6px 2px; font-size: 12px; }
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="stage"></div>
+<div id="labels" aria-hidden="true"></div>
+
+<header id="topbar">
+  <h1>태양계 탐험</h1>
+  <p id="scaleNote"></p>
+</header>
+
+<aside id="sidebar" class="panel" aria-label="탐색 메뉴">
+  <h2>행성 목록</h2>
+  <div id="planetList"></div>
+  <button id="overviewBtn" type="button">전체 보기</button>
+  <h2>스케일</h2>
+  <div class="segmented" role="group" aria-label="스케일 모드">
+    <button id="scaleLearnBtn" type="button" aria-pressed="true">학습용</button>
+    <button id="scaleRealBtn" type="button" aria-pressed="false">실제 비율</button>
+  </div>
+  <h2>표시</h2>
+  <label class="toggle"><input id="labelToggle" type="checkbox" checked> 행성 이름</label>
+  <label class="toggle"><input id="orbitToggle" type="checkbox" checked> 궤도선</label>
+</aside>
+
+<section id="infoPanel" class="panel" hidden aria-live="polite" aria-label="행성 정보">
+  <header>
+    <h2 id="infoName"></h2>
+    <button id="infoClose" type="button" aria-label="정보 패널 닫기">닫기</button>
+  </header>
+  <dl>
+    <dt>반지름</dt><dd id="infoRadius"></dd>
+    <dt>태양과의 현재 거리</dt><dd id="infoDistance"></dd>
+    <dt>공전주기</dt><dd id="infoOrbitalPeriod"></dd>
+    <dt>자전주기</dt><dd id="infoRotation"></dd>
+    <dt>자전축 기울기</dt><dd id="infoTilt"></dd>
+    <dt>이심률</dt><dd id="infoEccentricity"></dd>
+  </dl>
+  <h3>학습 포인트</h3>
+  <ul id="infoFacts"></ul>
+</section>
+
+<footer id="timebar" class="panel" aria-label="시간 제어">
+  <button id="playBtn" type="button">일시정지</button>
+  <div id="speedGroup" class="speed-group" role="group" aria-label="재생 속도"></div>
+  <output id="dateText" aria-label="시뮬레이션 날짜"></output>
+  <button id="todayBtn" type="button">오늘로 돌아가기</button>
+</footer>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ============================================================
+// 1. 데이터 — 천체 상수, 행성 궤도 요소, 스케일 설정
+// ============================================================
+
+// 수치 출처
+//  - 궤도 요소: NASA/JPL "Approximate Positions of the Planets" (E.M. Standish),
+//    Table 1 — 유효 기간 1800–2050 AD. 각 항목은 [J2000 기준값, 세기당 변화율]이며
+//    a(AU), e, I(deg), L(deg), longPeri(deg), longNode(deg) 단위를 따른다.
+//    표의 'EM Bary'(지구-달 질량중심) 값을 지구의 궤도로 사용한다.
+//  - 반지름(부피 평균), 자전주기(항성), 자전축 기울기: NASA Planetary Fact Sheet.
+//  - 자전주기는 크기(양수)만 저장한다. 역자전은 자전축 기울기가 90°를 넘는 것으로 표현한다
+//    (금성 177.4°, 천왕성 97.8°). 기울기와 부호를 함께 뒤집으면 이중 반전이 되기 때문이다.
+const J2000_JD = 2451545.0;
+const DAYS_PER_CENTURY = 36525;
+const AU_KM = 149597870.7;
+const SUN_RADIUS_KM = 695700;
+const EARTH_RADIUS_KM = 6371.0;
+
+const PLANETS = [
+  {
+    id: 'mercury', nameKo: '수성', color: '#b8b2a8',
+    radiusKm: 2439.7,
+    a: [0.38709927, 0.00000037],
+    e: [0.20563593, 0.00001906],
+    I: [7.00497902, -0.00594749],
+    L: [252.25032350, 149472.67411175],
+    longPeri: [77.45779628, 0.16047689],
+    longNode: [48.33076593, -0.12534081],
+    rotationPeriodHours: 1407.6,
+    axialTiltDeg: 0.034,
+    facts: [
+      '태양에 가장 가까워 공전주기가 약 88일로 가장 짧습니다.',
+      '자전 3바퀴에 공전 2바퀴가 도는 3:2 공명 때문에 해가 뜨고 다시 뜨기까지 약 176일이 걸립니다.'
+    ]
+  },
+  {
+    id: 'venus', nameKo: '금성', color: '#e8c987',
+    radiusKm: 6051.8,
+    a: [0.72333566, 0.00000390],
+    e: [0.00677672, -0.00004107],
+    I: [3.39467605, -0.00078890],
+    L: [181.97909950, 58517.81538729],
+    longPeri: [131.60246718, 0.00268329],
+    longNode: [76.67984255, -0.27769418],
+    rotationPeriodHours: 5832.5,
+    axialTiltDeg: 177.36,
+    facts: [
+      '다른 행성과 반대 방향으로 자전(역자전)해서 태양이 서쪽에서 떠서 동쪽으로 집니다.',
+      '자전주기(약 243일)가 공전주기(약 225일)보다 길어서, 하루가 1년보다 깁니다.'
+    ]
+  },
+  {
+    id: 'earth', nameKo: '지구', color: '#5aa0ff',
+    radiusKm: 6371.0,
+    a: [1.00000261, 0.00000562],
+    e: [0.01671123, -0.00004392],
+    I: [-0.00001531, -0.01294668],
+    L: [100.46457166, 35999.37244981],
+    longPeri: [102.93768193, 0.32327364],
+    longNode: [0.0, 0.0],
+    rotationPeriodHours: 23.934,
+    axialTiltDeg: 23.44,
+    facts: [
+      '자전축이 약 23.4° 기울어 있어서 계절이 생깁니다.',
+      '태양과의 거리는 1월 초에 가장 가깝고(약 0.983 AU) 7월 초에 가장 멉니다(약 1.017 AU).'
+    ]
+  },
+  {
+    id: 'mars', nameKo: '화성', color: '#e0693f',
+    radiusKm: 3389.5,
+    a: [1.52371034, 0.00001847],
+    e: [0.09339410, 0.00007882],
+    I: [1.84969142, -0.00813131],
+    L: [-4.55343205, 19140.30268499],
+    longPeri: [-23.94362959, 0.44441088],
+    longNode: [49.55953891, -0.29257343],
+    rotationPeriodHours: 24.623,
+    axialTiltDeg: 25.19,
+    facts: [
+      '자전축 기울기(약 25°)와 하루 길이(약 24.6시간)가 지구와 비슷해서 계절과 낮밤이 있습니다.',
+      '이심률이 0.093으로 커서 태양과의 거리가 약 1.38~1.67 AU까지 크게 변합니다.'
+    ]
+  },
+  {
+    id: 'jupiter', nameKo: '목성', color: '#d9a577',
+    radiusKm: 69911,
+    a: [5.20288700, -0.00011607],
+    e: [0.04838624, -0.00013253],
+    I: [1.30439695, -0.00183714],
+    L: [34.39644051, 3034.74612775],
+    longPeri: [14.72847983, 0.21252668],
+    longNode: [100.47390909, 0.20469106],
+    rotationPeriodHours: 9.925,
+    axialTiltDeg: 3.13,
+    facts: [
+      '태양계에서 가장 큰 행성으로, 반지름이 지구의 약 11배입니다.',
+      '약 10시간에 한 바퀴 도는 가장 빠른 자전 때문에 적도 쪽이 불룩하게 부풀어 있습니다.'
+    ]
+  },
+  {
+    id: 'saturn', nameKo: '토성', color: '#e6d29b', hasRing: true,
+    radiusKm: 58232,
+    a: [9.53667594, -0.00125060],
+    e: [0.05386179, -0.00050991],
+    I: [2.48599187, 0.00193609],
+    L: [49.95424423, 1222.49362201],
+    longPeri: [92.59887831, -0.41897216],
+    longNode: [113.66242448, -0.28867794],
+    rotationPeriodHours: 10.656,
+    axialTiltDeg: 26.73,
+    facts: [
+      '고리는 대부분 얼음 조각으로 이루어져 있고, 폭은 매우 넓지만 두께는 아주 얇습니다.',
+      '평균 밀도가 물보다 낮아서(약 0.69 g/cm³) 충분히 큰 물통이 있다면 물에 뜰 수 있습니다.'
+    ]
+  },
+  {
+    id: 'uranus', nameKo: '천왕성', color: '#8fe3e8',
+    radiusKm: 25362,
+    a: [19.18916464, -0.00196176],
+    e: [0.04725744, -0.00004397],
+    I: [0.77263783, -0.00242939],
+    L: [313.23810451, 428.48202785],
+    longPeri: [170.95427630, 0.40805281],
+    longNode: [74.01692503, 0.04240589],
+    rotationPeriodHours: 17.24,
+    axialTiltDeg: 97.77,
+    facts: [
+      '자전축이 약 98° 기울어 거의 누운 채로 굴러가듯 공전하며, 자전 방향도 역자전입니다.',
+      '공전주기가 약 84년이라 극지방은 약 42년씩 낮과 밤이 이어집니다.'
+    ]
+  },
+  {
+    id: 'neptune', nameKo: '해왕성', color: '#4b70e8',
+    radiusKm: 24622,
+    a: [30.06992276, 0.00026291],
+    e: [0.00859048, 0.00005105],
+    I: [1.77004347, 0.00035372],
+    L: [-55.12002969, 218.45945325],
+    longPeri: [44.96476227, -0.32241464],
+    longNode: [131.78422574, -0.00508664],
+    rotationPeriodHours: 16.11,
+    axialTiltDeg: 28.32,
+    facts: [
+      '태양계에서 가장 먼 행성으로, 태양을 한 바퀴 도는 데 약 165년이 걸립니다.',
+      '천왕성 궤도의 불규칙함에서 위치를 계산으로 예측해 1846년에 발견되었습니다.'
+    ]
+  }
+];
+
+// 스케일 설정 — 학습용: 거리 = 60 × √AU, 반지름 = 2 × √(지구 대비 배율)
+//               실제 비율: 거리와 반지름 모두 1 AU = 100 단위
+const LEARN_DIST_UNIT = 60;
+const LEARN_EARTH_RADIUS = 2;
+const LEARN_SUN_RADIUS = 8;
+const REAL_UNITS_PER_AU = 100;
+const SCALE_TRANSITION_MS = 1500;
+const NEPTUNE_AU = 30.07;
+
+// 재생 속도 프리셋 — 시뮬레이션 일수 / 실제 1초
+const SPEED_PRESETS = [
+  { label: '1시간/초', daysPerSec: 1 / 24 },
+  { label: '1일/초', daysPerSec: 1 },
+  { label: '1주/초', daysPerSec: 7 },
+  { label: '1개월/초', daysPerSec: 30.4375 },
+  { label: '1년/초', daysPerSec: 365.25 }
+];
+const DEFAULT_SPEED_INDEX = 1;
+
+const SCALE_NOTES = {
+  learn: '학습용 스케일: 거리는 √AU로 압축하고 반지름은 √(지구 대비 배율)로 과장했습니다.',
+  real: '실제 비율 스케일: 거리와 반지름을 같은 단위(1 AU = 100)로 그려 행성이 점처럼 작게 보입니다.'
+};
+
+// ============================================================
+// 2. 궤도 계산 — three.js에 의존하지 않는 순수 함수
+// ============================================================
+const DEG = Math.PI / 180;
+const TWO_PI = Math.PI * 2;
+const KEPLER_TOLERANCE = 1e-8;
+const KEPLER_MAX_ITERATIONS = 50;
+let keplerLastIterations = 0;
+
+function dateToJd(date) {
+  return date.getTime() / 86400000 + 2440587.5;
+}
+
+function jdToDate(jd) {
+  return new Date((jd - 2440587.5) * 86400000);
+}
+
+function wrapRadians(x) {
+  let w = x % TWO_PI;
+  if (w > Math.PI) w -= TWO_PI;
+  else if (w <= -Math.PI) w += TWO_PI;
+  return w;
+}
+
+// 케플러 방정식 M = E − e·sin E 를 뉴턴 반복으로 푼다 (|ΔE| < tol rad 에서 종료)
+function solveKepler(meanAnomaly, e, tol = KEPLER_TOLERANCE) {
+  const m = wrapRadians(meanAnomaly);
+  let E = e < 0.8 ? m + e * Math.sin(m) : (m < 0 ? -Math.PI : Math.PI);
+  let iterations = 0;
+  while (iterations < KEPLER_MAX_ITERATIONS) {
+    const dE = (E - e * Math.sin(E) - m) / (1 - e * Math.cos(E));
+    E -= dE;
+    iterations++;
+    if (Math.abs(dE) < tol) break;
+  }
+  keplerLastIterations = iterations;
+  return E;
+}
+
+// 시각 jd에서의 궤도 요소 (라디안). out에 결과를 써서 객체 생성을 피한다.
+function elementsAtJd(p, jd, out) {
+  const T = (jd - J2000_JD) / DAYS_PER_CENTURY;
+  const longPeri = p.longPeri[0] + p.longPeri[1] * T;
+  const L = p.L[0] + p.L[1] * T;
+  out.a = p.a[0] + p.a[1] * T;
+  out.e = p.e[0] + p.e[1] * T;
+  out.I = (p.I[0] + p.I[1] * T) * DEG;
+  out.node = (p.longNode[0] + p.longNode[1] * T) * DEG;
+  out.omega = longPeri * DEG - out.node;     // 근일점 편각 ω = ϖ − Ω
+  out.M = (L - longPeri) * DEG;              // 평균근점이각 M = L − ϖ
+  return out;
+}
+
+// 궤도면 좌표(근일점 방향 x', y') → 황도 J2000 좌표 (AU). out.r 은 태양까지 거리.
+function orbitalToEcliptic(a, e, I, omega, node, E, out) {
+  const cosE = Math.cos(E);
+  const sinE = Math.sin(E);
+  const xp = a * (cosE - e);
+  const yp = a * Math.sqrt(1 - e * e) * sinE;
+  const cw = Math.cos(omega), sw = Math.sin(omega);
+  const cO = Math.cos(node), sO = Math.sin(node);
+  const cI = Math.cos(I), sI = Math.sin(I);
+  out.x = (cw * cO - sw * sO * cI) * xp + (-sw * cO - cw * sO * cI) * yp;
+  out.y = (cw * sO + sw * cO * cI) * xp + (-sw * sO + cw * cO * cI) * yp;
+  out.z = (sw * sI) * xp + (cw * sI) * yp;
+  out.r = a * (1 - e * cosE);
+  return out;
+}
+
+const elementsScratch = { a: 0, e: 0, I: 0, node: 0, omega: 0, M: 0 };
+
+// 행성의 황도 좌표 (AU) 계산: 궤도 요소 → 케플러 방정식 → 궤도면 좌표 → 황도 좌표
+function computePlanetPosition(p, jd, out) {
+  const el = elementsAtJd(p, jd, elementsScratch);
+  const E = solveKepler(el.M, el.e);
+  return orbitalToEcliptic(el.a, el.e, el.I, el.omega, el.node, E, out);
+}
+
+// 같은 궤도 요소로 이심근점이각 E를 0~2π로 훑어 타원 경로를 계산한다 (count+1개 점, 시작=끝).
+// 결과는 씬 축(x, y=황도 z, z=−황도 y)의 AU 좌표로 outBase에, ln(r)은 outLnR에 쓴다.
+const orbitScratch = { x: 0, y: 0, z: 0, r: 0 };
+function computeOrbitPath(p, jd, count, outBase, outLnR) {
+  const el = elementsAtJd(p, jd, elementsScratch);
+  for (let i = 0; i <= count; i++) {
+    const E = (TWO_PI * i) / count;
+    orbitalToEcliptic(el.a, el.e, el.I, el.omega, el.node, E, orbitScratch);
+    outBase[i * 3] = orbitScratch.x;
+    outBase[i * 3 + 1] = orbitScratch.z;
+    outBase[i * 3 + 2] = -orbitScratch.y;
+    outLnR[i] = Math.log(orbitScratch.r);
+  }
+}
+
+function orbitalPeriodDays(p) {
+  return (DAYS_PER_CENTURY * 360) / p.L[1];
+}
+
+// 스케일 보간 — 거리/반지름 모두 로그 공간에서 학습용(k=0) ↔ 실제 비율(k=1)을 섞는다.
+const LN_LEARN_DIST = Math.log(LEARN_DIST_UNIT);
+const LN_REAL_DIST = Math.log(REAL_UNITS_PER_AU);
+function lnMapDistance(lnR, k) {
+  return (1 - k) * (LN_LEARN_DIST + 0.5 * lnR) + k * (LN_REAL_DIST + lnR);
+}
+
+// ---- 자체 검증 (?selftest) ----
+function measureOrbitalPeriodDays(p, startJd, stepDays) {
+  const pos = { x: 0, y: 0, z: 0, r: 0 };
+  computePlanetPosition(p, startJd, pos);
+  let prev = Math.atan2(pos.y, pos.x);
+  let total = 0;
+  let jd = startJd;
+  const limit = startJd + 2000;
+  while (jd < limit) {
+    jd += stepDays;
+    computePlanetPosition(p, jd, pos);
+    const ang = Math.atan2(pos.y, pos.x);
+    let d = ang - prev;
+    if (d < -Math.PI) d += TWO_PI;
+    else if (d > Math.PI) d -= TWO_PI;
+    if (total + d >= TWO_PI) {
+      return jd - stepDays + ((TWO_PI - total) / d) * stepDays - startJd;
+    }
+    total += d;
+    prev = ang;
+  }
+  return NaN;
+}
+
+function runSelfTest() {
+  const results = [];
+  const check = (name, ok, detail) => {
+    console.assert(ok, `[selftest] 실패: ${name} — ${detail}`);
+    results.push({ name, ok, detail });
+    console.log(`[selftest] ${ok ? '통과' : '실패'} · ${name} · ${detail}`);
+  };
+  const byId = (id) => PLANETS.find((p) => p.id === id);
+  const pos = { x: 0, y: 0, z: 0, r: 0 };
+  const utcJd = (y, m, d) => Date.UTC(y, m - 1, d) / 86400000 + 2440587.5;
+  const earth = byId('earth');
+
+  // 1. 지구의 근일점·원일점 부근 태양 거리
+  const rJan = computePlanetPosition(earth, utcJd(2026, 1, 3), pos).r;
+  const rJul = computePlanetPosition(earth, utcJd(2026, 7, 5), pos).r;
+  check('지구 1월 초 거리 ≈ 0.983 AU (±0.002)', Math.abs(rJan - 0.983) <= 0.002, `${rJan.toFixed(5)} AU`);
+  check('지구 7월 초 거리 ≈ 1.017 AU (±0.002)', Math.abs(rJul - 1.017) <= 0.002, `${rJul.toFixed(5)} AU`);
+
+  // 2. 수성의 1년간 거리 범위
+  const mercury = byId('mercury');
+  let rMin = Infinity, rMax = -Infinity;
+  const startJd = utcJd(2026, 1, 1);
+  for (let d = 0; d <= 365; d += 0.5) {
+    const r = computePlanetPosition(mercury, startJd + d, pos).r;
+    if (r < rMin) rMin = r;
+    if (r > rMax) rMax = r;
+  }
+  check('수성 거리가 0.307~0.467 AU 범위 안에서 변함',
+    rMin >= 0.307 && rMax <= 0.467 && rMax - rMin > 0.1,
+    `최소 ${rMin.toFixed(4)}, 최대 ${rMax.toFixed(4)} AU`);
+
+  // 3. 지구 공전주기 시뮬레이션 측정
+  const period = measureOrbitalPeriodDays(earth, startJd, 0.05);
+  check('지구 공전주기 365.25일 ± 0.5일', Math.abs(period - 365.25) <= 0.5, `${period.toFixed(4)}일`);
+
+  // 4. 이심률 0.9 케플러 방정식 수렴
+  let worstResidual = 0, worstIterations = 0, converged = true;
+  for (let i = 0; i <= 720; i++) {
+    const M = (TWO_PI * i) / 720 - Math.PI;
+    for (const mm of [M, 1e-3]) {
+      const E = solveKepler(mm, 0.9);
+      const residual = Math.abs(E - 0.9 * Math.sin(E) - wrapRadians(mm));
+      worstResidual = Math.max(worstResidual, residual);
+      worstIterations = Math.max(worstIterations, keplerLastIterations);
+      if (keplerLastIterations >= KEPLER_MAX_ITERATIONS || !(residual < 1e-8)) converged = false;
+    }
+  }
+  check('케플러 방정식 e=0.9 수렴', converged,
+    `최대 잔차 ${worstResidual.toExponential(2)} rad, 최대 반복 ${worstIterations}회`);
+
+  const passed = results.filter((r) => r.ok).length;
+  console.log(`[selftest] 요약: ${results.length}개 중 ${passed}개 통과`);
+  window.__selftest = { passed, total: results.length, results };
+}
+
+// ============================================================
+// 3. 텍스처 생성 — Canvas 2D로 행성 표면을 절차 생성
+// ============================================================
+const TEX_W = 512;
+const TEX_H = 256;
+
+function mulberry32(seed) {
+  let s = seed | 0;
+  return function () {
+    s = (s + 0x6D2B79F5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function hash2(ix, iy, seed) {
+  let h = Math.imul(ix, 374761393) ^ Math.imul(iy, 668265263) ^ Math.imul(seed, 1442695041);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+// u 방향(경도)으로 이음매 없이 반복되는 값 잡음
+function valueNoise(u, v, fx, fy, seed) {
+  const x = u * fx, y = v * fy;
+  const ix = Math.floor(x), iy = Math.floor(y);
+  const tx = x - ix, ty = y - iy;
+  const sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty);
+  const x0 = ((ix % fx) + fx) % fx, x1 = (x0 + 1) % fx;
+  const a = hash2(x0, iy, seed), b = hash2(x1, iy, seed);
+  const c = hash2(x0, iy + 1, seed), d = hash2(x1, iy + 1, seed);
+  return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+}
+
+function fbm(u, v, baseFx, baseFy, octaves, seed) {
+  let sum = 0, amp = 0.5, norm = 0, fx = baseFx, fy = baseFy;
+  for (let o = 0; o < octaves; o++) {
+    sum += amp * valueNoise(u, v, fx, fy, seed + o * 17);
+    norm += amp;
+    amp *= 0.5;
+    fx *= 2;
+    fy *= 2;
+  }
+  return sum / norm;
+}
+
+const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+const smoothstep = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+
+// 색상 팔레트(순환)에서 t(0~1)에 해당하는 색을 out에 쓴다
+function paletteColor(stops, t, out) {
+  const n = stops.length;
+  const f = clamp01(t) * (n - 1);
+  const i = Math.min(Math.floor(f), n - 2);
+  const w = f - i;
+  const a = stops[i], b = stops[i + 1];
+  out[0] = a[0] + (b[0] - a[0]) * w;
+  out[1] = a[1] + (b[1] - a[1]) * w;
+  out[2] = a[2] + (b[2] - a[2]) * w;
+}
+
+function mixColor(out, r, g, b, w) {
+  out[0] += (r - out[0]) * w;
+  out[1] += (g - out[1]) * w;
+  out[2] += (b - out[2]) * w;
+}
+
+// paint(u, v, out) 가 픽셀 색을 채우는 캔버스를 만든다
+function paintCanvas(width, height, paint) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  const image = ctx.createImageData(width, height);
+  const px = image.data;
+  const rgb = [0, 0, 0];
+  for (let y = 0; y < height; y++) {
+    const v = (y + 0.5) / height;
+    for (let x = 0; x < width; x++) {
+      paint((x + 0.5) / width, v, rgb);
+      const i = (y * width + x) * 4;
+      px[i] = rgb[0];
+      px[i + 1] = rgb[1];
+      px[i + 2] = rgb[2];
+      px[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  return canvas;
+}
+
+function bandPainter(palette, bandCount, warpAmp, seed) {
+  return (u, v, o) => {
+    const warp = fbm(u, v, 6, 12, 4, seed) - 0.5;
+    const turb = fbm(u, v, 10, 20, 4, seed + 5) - 0.5;
+    const s = 0.5 + 0.5 * Math.sin((v + warpAmp * warp) * bandCount * TWO_PI + turb * 3);
+    paletteColor(palette, s, o);
+  };
+}
+
+// 타원형 점(대적점 등)의 세기 0~1
+function spotStrength(u, v, cu, cv, ru, rv) {
+  let du = Math.abs(u - cu);
+  if (du > 0.5) du = 1 - du;
+  const d2 = (du / ru) * (du / ru) + ((v - cv) / rv) * ((v - cv) / rv);
+  return d2 >= 1 ? 0 : 1 - d2;
+}
+
+const TEXTURE_PAINTERS = {
+  mercury: () => {
+    const canvas = paintCanvas(TEX_W, TEX_H, (u, v, o) => {
+      const n = fbm(u, v, 8, 4, 5, 11);
+      const g = 70 + n * 120;
+      o[0] = g; o[1] = g * 0.97; o[2] = g * 0.92;
+    });
+    const ctx = canvas.getContext('2d');
+    const rng = mulberry32(7);
+    for (let i = 0; i < 260; i++) {
+      const x = rng() * TEX_W, y = rng() * TEX_H;
+      const r = 2 + Math.pow(rng(), 3) * 20;
+      const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+      grad.addColorStop(0, 'rgba(0,0,0,0.30)');
+      grad.addColorStop(0.7, 'rgba(0,0,0,0.12)');
+      grad.addColorStop(0.9, 'rgba(255,255,255,0.22)');
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, TWO_PI);
+      ctx.fill();
+    }
+    return canvas;
+  },
+  venus: () => {
+    const palette = [[196, 150, 82], [222, 188, 118], [243, 222, 160], [214, 172, 100]];
+    return paintCanvas(TEX_W, TEX_H, (u, v, o) => {
+      const w = fbm(u, v, 3, 6, 4, 31);
+      const n = fbm(u + 0.3 * w, v, 2, 10, 5, 33);
+      paletteColor(palette, n * 1.6 - 0.2, o);
+    });
+  },
+  earth: () => {
+    return paintCanvas(TEX_W, TEX_H, (u, v, o) => {
+      const elev = fbm(u, v, 4, 2, 6, 21);
+      const lat = Math.abs(v - 0.5) * 2;
+      if (elev > 0.53) {
+        const h = clamp01((elev - 0.53) / 0.3);
+        const dry = smoothstep(0.35, 0.55, fbm(u, v, 5, 3, 4, 41)) * (1 - smoothstep(0.25, 0.6, lat));
+        o[0] = 58 + h * 80; o[1] = 118 - h * 20; o[2] = 52 + h * 30;
+        mixColor(o, 196, 170, 110, dry * 0.8);
+        mixColor(o, 225, 225, 220, smoothstep(0.7, 1, h) * 0.8);
+      } else {
+        const depth = clamp01((0.53 - elev) / 0.25);
+        o[0] = 28 - depth * 18; o[1] = 100 - depth * 55; o[2] = 165 - depth * 60;
+      }
+      const iceEdge = 0.84 + 0.07 * fbm(u, v, 8, 2, 3, 51);
+      mixColor(o, 242, 247, 252, smoothstep(iceEdge, iceEdge + 0.05, lat));
+      const cloud = smoothstep(0.52, 0.78, fbm(u, v, 6, 3, 5, 77));
+      mixColor(o, 255, 255, 255, cloud * 0.8);
+    });
+  },
+  mars: () => {
+    const palette = [[150, 70, 40], [190, 98, 56], [214, 130, 82]];
+    return paintCanvas(TEX_W, TEX_H, (u, v, o) => {
+      const n = fbm(u, v, 6, 3, 6, 61);
+      paletteColor(palette, n * 1.4 - 0.1, o);
+      const dark = smoothstep(0.5, 0.65, fbm(u, v, 4, 2, 4, 63));
+      mixColor(o, 90, 52, 42, dark * 0.65);
+      const lat = Math.abs(v - 0.5) * 2;
+      mixColor(o, 248, 244, 240, smoothstep(0.9, 0.95, lat + 0.03 * (fbm(u, v, 12, 4, 2, 65) - 0.5)));
+    });
+  },
+  jupiter: () => {
+    const bands = bandPainter([[236, 222, 196], [214, 168, 120], [172, 118, 80], [232, 206, 168], [152, 102, 72]], 7, 0.035, 71);
+    return paintCanvas(TEX_W, TEX_H, (u, v, o) => {
+      bands(u, v, o);
+      const spot = spotStrength(u, v, 0.3, 0.63, 0.06, 0.045);
+      mixColor(o, 184, 74, 50, smoothstep(0, 0.45, spot) * 0.9);
+    });
+  },
+  saturn: () => paintCanvas(TEX_W, TEX_H, bandPainter([[236, 214, 164], [214, 190, 140], [244, 226, 184], [206, 180, 128]], 9, 0.02, 81)),
+  uranus: () => paintCanvas(TEX_W, TEX_H, bandPainter([[170, 232, 234], [150, 218, 226], [182, 238, 240]], 4, 0.015, 91)),
+  neptune: () => {
+    const bands = bandPainter([[48, 84, 206], [30, 56, 160], [74, 114, 228], [40, 70, 184]], 6, 0.03, 101);
+    return paintCanvas(TEX_W, TEX_H, (u, v, o) => {
+      bands(u, v, o);
+      const streak = smoothstep(0.62, 0.8, fbm(u, v, 8, 18, 4, 103));
+      mixColor(o, 220, 232, 255, streak * 0.45);
+      mixColor(o, 14, 26, 90, smoothstep(0, 0.5, spotStrength(u, v, 0.65, 0.4, 0.06, 0.05)) * 0.85);
+    });
+  },
+  sun: () => {
+    const palette = [[255, 112, 18], [255, 176, 52], [255, 232, 140], [255, 250, 200]];
+    return paintCanvas(TEX_W, TEX_H, (u, v, o) => {
+      const n = fbm(u, v, 24, 12, 5, 111);
+      paletteColor(palette, n * 1.5 - 0.1, o);
+    });
+  }
+};
+
+// 토성 고리: 반지름 방향(u)으로 변하는 띠 + 카시니 틈, 투명도는 알파 채널
+function createRingTexture() {
+  const w = 1024, h = 16;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  const image = ctx.createImageData(w, h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const u = (x + 0.5) / w;
+      let density;
+      if (u < 0.17) density = 0.18;                  // C 고리
+      else if (u < 0.55) density = 0.95;             // B 고리
+      else if (u < 0.60) density = 0.04;             // 카시니 틈
+      else if (u < 0.95) density = 0.68;             // A 고리
+      else density = 0;
+      if (u > 0.88 && u < 0.895) density *= 0.15;    // 엥케 틈
+      const ringlet = 0.7 + 0.3 * valueNoise(u, (y + 0.5) / h, 160, 1, 5);
+      const i = (y * w + x) * 4;
+      const shade = 0.8 + 0.2 * valueNoise(u, 0.5, 40, 1, 9);
+      image.data[i] = 226 * shade;
+      image.data[i + 1] = 206 * shade;
+      image.data[i + 2] = 168 * shade;
+      image.data[i + 3] = 255 * clamp01(density * ringlet);
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  return canvas;
+}
+
+// ============================================================
+// 4. 씬 구성 — 렌더러, 카메라, 천체, 궤도선, 별 필드
+// ============================================================
+const stageEl = document.getElementById('stage');
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
+} catch (err) {
+  const fatal = document.createElement('div');
+  fatal.id = 'fatal';
+  fatal.className = 'panel';
+  fatal.textContent = '이 브라우저에서는 WebGL을 사용할 수 없어 태양계를 표시할 수 없습니다.';
+  document.body.appendChild(fatal);
+  throw err;
+}
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+stageEl.appendChild(renderer.domElement);
+const maxAnisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x01020a);
+
+const CAMERA_FOV = 50;
+const camera = new THREE.PerspectiveCamera(CAMERA_FOV, window.innerWidth / window.innerHeight, 5e-5, 1e5);
+const tanHalfFov = Math.tan((CAMERA_FOV * DEG) / 2);
+
+// 학습용 스케일에서 해왕성 궤도가 한눈에 들어오는 카메라 거리, 실제 비율로 갈 때의 배율
+const OVERVIEW_DIST_LEARN = 760;
+const LN_VIEW_RATIO = Math.log((REAL_UNITS_PER_AU * NEPTUNE_AU) / (LEARN_DIST_UNIT * Math.sqrt(NEPTUNE_AU)));
+const DEFAULT_VIEW_DIR = new THREE.Vector3(0, 0.55, 1).normalize();
+const viewFactor = (k) => Math.exp(k * LN_VIEW_RATIO);
+const overviewDistance = (k) => OVERVIEW_DIST_LEARN * viewFactor(k);
+camera.position.copy(DEFAULT_VIEW_DIR).multiplyScalar(overviewDistance(0));
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.rotateSpeed = 0.8;
+controls.zoomSpeed = 1.0;
+controls.target.set(0, 0, 0);
+
+// 조명 — r155+ 의 물리 기반 단위: PointLight 의 intensity 는 칸델라, decay 기본값은 2.
+// 학습용 압축 거리에서 해왕성까지 보이도록 거리 감쇠를 끄고(decay 0),
+// 램버트 면이 정면에서 알베도 그대로 보이는 세기(≈π)를 준다. 어두운 면은 약한 환경광으로 살린다.
+const sunLight = new THREE.PointLight(0xffffff, 3.2, 0, 0);
+scene.add(sunLight);
+scene.add(new THREE.AmbientLight(0x8a9bc4, 0.55));
+
+// 공유 지오메트리
+const unitSphereGeo = new THREE.SphereGeometry(1, 64, 48);
+const hitSphereGeo = new THREE.SphereGeometry(1, 12, 8);
+const hitMaterial = new THREE.MeshBasicMaterial({ visible: false });
+const axisConeGeo = new THREE.ConeGeometry(0.07, 0.28, 16);
+
+function makeCanvasTexture(canvas) {
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAnisotropy;
+  return tex;
+}
+
+// 태양 — 자체 발광(조명 영향을 받지 않는 재질)
+const sunMesh = new THREE.Mesh(
+  unitSphereGeo,
+  new THREE.MeshBasicMaterial({ map: makeCanvasTexture(TEXTURE_PAINTERS.sun()) })
+);
+scene.add(sunMesh);
+const SUN_LN_RADIUS_LEARN = Math.log(LEARN_SUN_RADIUS);
+const SUN_LN_RADIUS_REAL = Math.log((SUN_RADIUS_KM / AU_KM) * REAL_UNITS_PER_AU);
+
+// 토성 고리: RingGeometry 의 UV 를 반지름 방향(u)·각도(v)로 재매핑
+const RING_INNER = 1.28;
+const RING_OUTER = 2.35;
+function createRingGeometry() {
+  const geo = new THREE.RingGeometry(RING_INNER, RING_OUTER, 128, 4);
+  const pos = geo.attributes.position;
+  const uv = geo.attributes.uv;
+  const tmp = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    tmp.fromBufferAttribute(pos, i);
+    const r = Math.hypot(tmp.x, tmp.y);
+    uv.setXY(i, (r - RING_INNER) / (RING_OUTER - RING_INNER), Math.atan2(tmp.y, tmp.x) / TWO_PI + 0.5);
+  }
+  uv.needsUpdate = true;
+  geo.rotateX(-Math.PI / 2);   // 적도면(XZ)에 눕힌다
+  return geo;
+}
+
+const planetObjects = PLANETS.map((p) => {
+  const group = new THREE.Group();                 // 궤도상의 위치
+  const tilt = new THREE.Group();                  // 자전축 기울기
+  tilt.rotation.z = p.axialTiltDeg * DEG;
+  group.add(tilt);
+
+  const body = new THREE.Mesh(
+    unitSphereGeo,
+    new THREE.MeshStandardMaterial({ map: makeCanvasTexture(TEXTURE_PAINTERS[p.id]()), roughness: 1, metalness: 0 })
+  );
+  tilt.add(body);                                  // 로컬 y축 기준으로 자전
+
+  let ring = null;
+  if (p.hasRing) {
+    ring = new THREE.Mesh(createRingGeometry(), new THREE.MeshStandardMaterial({
+      map: makeCanvasTexture(createRingTexture()),
+      side: THREE.DoubleSide, transparent: true, depthWrite: false, roughness: 1, metalness: 0
+    }));
+    tilt.add(ring);
+  }
+
+  // 선택된 행성에만 보이는 자전축 표시(북극 쪽 끝에 원뿔) — 역자전·누운 자전축 확인용
+  const axis = new THREE.Group();
+  axis.add(new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, -1.8, 0), new THREE.Vector3(0, 1.8, 0)]),
+    new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7 })
+  ));
+  const cone = new THREE.Mesh(axisConeGeo, new THREE.MeshBasicMaterial({ color: 0xffb84d }));
+  cone.position.y = 1.9;
+  axis.add(cone);
+  axis.visible = false;
+  tilt.add(axis);
+
+  // 보이지 않는 히트 영역 (작은 행성도 클릭할 수 있게 화면 크기에 맞춰 키운다)
+  const hit = new THREE.Mesh(hitSphereGeo, hitMaterial);
+  hit.userData.planetId = p.id;
+  group.add(hit);
+
+  // 궤도선
+  const orbitSegments = 360;
+  const orbitBase = new Float32Array((orbitSegments + 1) * 3);
+  const orbitLnR = new Float32Array(orbitSegments + 1);
+  const orbitPositions = new Float32Array((orbitSegments + 1) * 3);
+  const orbitGeo = new THREE.BufferGeometry();
+  orbitGeo.setAttribute('position', new THREE.BufferAttribute(orbitPositions, 3));
+  const orbitLine = new THREE.Line(orbitGeo, new THREE.LineBasicMaterial({ color: p.color, transparent: true, opacity: 0.55 }));
+  orbitLine.frustumCulled = false;
+  scene.add(orbitLine);
+  scene.add(group);
+
+  return {
+    data: p, group, tilt, body, ring, axis, hit,
+    orbitLine, orbitSegments, orbitBase, orbitLnR, orbitPositions,
+    lnRadiusLearn: Math.log(LEARN_EARTH_RADIUS * Math.sqrt(p.radiusKm / EARTH_RADIUS_KM)),
+    lnRadiusReal: Math.log((p.radiusKm / AU_KM) * REAL_UNITS_PER_AU),
+    retrograde: p.axialTiltDeg > 90,
+    radiusVis: 1, distAU: 0, camDist: 1, labelEl: null, labelShown: true
+  };
+});
+const hitMeshes = planetObjects.map((po) => po.hit);
+const planetById = new Map(planetObjects.map((po) => [po.data.id, po]));
+
+// 별 필드 — 절차 생성한 Points. 카메라 위치를 따라다녀 무한히 먼 배경처럼 보인다.
+function createStarField(count) {
+  const rng = mulberry32(2026);
+  const positions = new Float32Array(count * 3);
+  const colors = new Float32Array(count * 3);
+  const radius = 4e4;
+  for (let i = 0; i < count; i++) {
+    const z = rng() * 2 - 1;
+    const phi = rng() * TWO_PI;
+    const s = Math.sqrt(1 - z * z);
+    positions[i * 3] = radius * s * Math.cos(phi);
+    positions[i * 3 + 1] = radius * z;
+    positions[i * 3 + 2] = radius * s * Math.sin(phi);
+    const bright = 0.35 + 0.65 * Math.pow(rng(), 2.5);
+    const warm = rng();
+    colors[i * 3] = bright * (warm > 0.6 ? 1 : 0.8 + 0.2 * warm);
+    colors[i * 3 + 1] = bright * 0.92;
+    colors[i * 3 + 2] = bright * (warm < 0.4 ? 1 : 0.8 + 0.2 * (1 - warm));
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const points = new THREE.Points(geo, new THREE.PointsMaterial({
+    size: 1.6, sizeAttenuation: false, vertexColors: true, depthWrite: false, fog: false
+  }));
+  points.frustumCulled = false;
+  return points;
+}
+const starField = createStarField(6000);
+scene.add(starField);
+
+// 궤도선 갱신 — 기준 타원(AU)을 현재 스케일 보간값 k 에 맞춰 늘이거나 줄인다
+function applyOrbitScale(po, k) {
+  const { orbitBase: base, orbitLnR: lnR, orbitPositions: out } = po;
+  for (let i = 0; i <= po.orbitSegments; i++) {
+    const f = Math.exp(lnMapDistance(lnR[i], k) - lnR[i]);
+    out[i * 3] = base[i * 3] * f;
+    out[i * 3 + 1] = base[i * 3 + 1] * f;
+    out[i * 3 + 2] = base[i * 3 + 2] * f;
+  }
+  po.orbitLine.geometry.attributes.position.needsUpdate = true;
+}
+
+let orbitEpochJd = NaN;
+let orbitAppliedK = NaN;
+const ORBIT_REBUILD_DAYS = 3652.5;   // 궤도 요소가 10년 이상 어긋나면 타원을 다시 계산
+function refreshOrbits(jd, k) {
+  const stale = !(Math.abs(jd - orbitEpochJd) <= ORBIT_REBUILD_DAYS);
+  if (stale) {
+    for (const po of planetObjects) computeOrbitPath(po.data, jd, po.orbitSegments, po.orbitBase, po.orbitLnR);
+    orbitEpochJd = jd;
+  }
+  if (stale || k !== orbitAppliedK) {
+    for (const po of planetObjects) applyOrbitScale(po, k);
+    orbitAppliedK = k;
+  }
+}
+
+// ============================================================
+// 5. UI — 목록, 정보 패널, 시간 제어, 라벨, 선택/카메라 이동
+// ============================================================
+const planetListEl = document.getElementById('planetList');
+const labelsEl = document.getElementById('labels');
+const infoPanelEl = document.getElementById('infoPanel');
+const infoEls = {
+  name: document.getElementById('infoName'),
+  radius: document.getElementById('infoRadius'),
+  distance: document.getElementById('infoDistance'),
+  orbitalPeriod: document.getElementById('infoOrbitalPeriod'),
+  rotation: document.getElementById('infoRotation'),
+  tilt: document.getElementById('infoTilt'),
+  eccentricity: document.getElementById('infoEccentricity'),
+  facts: document.getElementById('infoFacts')
+};
+const dateTextEl = document.getElementById('dateText');
+const playBtn = document.getElementById('playBtn');
+const scaleNoteEl = document.getElementById('scaleNote');
+const scaleLearnBtn = document.getElementById('scaleLearnBtn');
+const scaleRealBtn = document.getElementById('scaleRealBtn');
+const labelToggle = document.getElementById('labelToggle');
+const orbitToggle = document.getElementById('orbitToggle');
+
+// 시뮬레이션 상태
+const state = {
+  jd: dateToJd(new Date()),
+  playing: true,
+  speedIndex: DEFAULT_SPEED_INDEX,
+  scaleMix: 0,                 // 0 = 학습용, 1 = 실제 비율
+  scaleFrom: 0,
+  scaleTarget: 0,
+  scaleStartMs: 0,
+  scaleAnimating: false
+};
+
+const numberKo = (x, digits = 0) => x.toLocaleString('ko-KR', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+
+// 행성 목록 + 라벨 DOM
+const planetButtons = new Map();
+for (const po of planetObjects) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'planet-btn';
+  btn.setAttribute('aria-pressed', 'false');
+  btn.innerHTML = '<span class="planet-dot"></span><span></span>';
+  btn.firstChild.style.background = po.data.color;
+  btn.firstChild.style.color = po.data.color;
+  btn.lastChild.textContent = po.data.nameKo;
+  btn.addEventListener('click', () => selectPlanet(po));
+  planetListEl.appendChild(btn);
+  planetButtons.set(po.data.id, btn);
+
+  const label = document.createElement('div');
+  label.className = 'label';
+  label.textContent = po.data.nameKo;
+  labelsEl.appendChild(label);
+  po.labelEl = label;
+}
+
+// 속도 프리셋 버튼
+const speedGroupEl = document.getElementById('speedGroup');
+const speedButtons = SPEED_PRESETS.map((preset, i) => {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.textContent = preset.label;
+  btn.addEventListener('click', () => setSpeed(i));
+  speedGroupEl.appendChild(btn);
+  return btn;
+});
+
+function setSpeed(i) {
+  state.speedIndex = i;
+  speedButtons.forEach((b, j) => b.setAttribute('aria-pressed', String(i === j)));
+}
+
+function setPlaying(playing) {
+  state.playing = playing;
+  playBtn.textContent = playing ? '일시정지' : '재생';
+}
+
+playBtn.addEventListener('click', () => setPlaying(!state.playing));
+document.getElementById('todayBtn').addEventListener('click', () => { state.jd = dateToJd(new Date()); });
+setSpeed(DEFAULT_SPEED_INDEX);
+
+// 스케일 모드
+function setScaleMode(mode) {
+  const target = mode === 'real' ? 1 : 0;
+  scaleLearnBtn.setAttribute('aria-pressed', String(target === 0));
+  scaleRealBtn.setAttribute('aria-pressed', String(target === 1));
+  scaleNoteEl.textContent = SCALE_NOTES[mode];
+  if (target === state.scaleTarget && !state.scaleAnimating) return;
+  state.scaleFrom = state.scaleMix;
+  state.scaleTarget = target;
+  state.scaleStartMs = performance.now();
+  state.scaleAnimating = true;
+}
+scaleLearnBtn.addEventListener('click', () => setScaleMode('learn'));
+scaleRealBtn.addEventListener('click', () => setScaleMode('real'));
+scaleNoteEl.textContent = SCALE_NOTES.learn;
+
+const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+function updateScaleTransition(nowMs) {
+  if (!state.scaleAnimating) return;
+  const t = Math.min(1, (nowMs - state.scaleStartMs) / SCALE_TRANSITION_MS);
+  state.scaleMix = state.scaleFrom + (state.scaleTarget - state.scaleFrom) * easeInOutCubic(t);
+  if (t >= 1) {
+    state.scaleMix = state.scaleTarget;
+    state.scaleAnimating = false;
+  }
+}
+
+orbitToggle.addEventListener('change', () => {
+  for (const po of planetObjects) po.orbitLine.visible = orbitToggle.checked;
+});
+
+// 정보 패널
+function formatOrbitalPeriod(p) {
+  const days = orbitalPeriodDays(p);
+  const years = days / 365.25;
+  return `${numberKo(days, days < 1000 ? 1 : 0)}일 (${numberKo(years, years < 10 ? 2 : 1)}년)`;
+}
+
+function formatRotation(po) {
+  const h = po.data.rotationPeriodHours;
+  const text = h < 48
+    ? `${numberKo(h, 2)}시간`
+    : `${numberKo(h / 24, 1)}일 (${numberKo(h)}시간)`;
+  return po.retrograde ? `${text} · 역자전` : text;
+}
+
+const eccScratch = { a: 0, e: 0, I: 0, node: 0, omega: 0, M: 0 };
+function fillInfoPanel(po) {
+  const p = po.data;
+  infoEls.name.textContent = p.nameKo;
+  infoEls.radius.textContent = `${numberKo(p.radiusKm, p.radiusKm < 10000 ? 1 : 0)} km (지구의 ${numberKo(p.radiusKm / EARTH_RADIUS_KM, 2)}배)`;
+  infoEls.orbitalPeriod.textContent = formatOrbitalPeriod(p);
+  infoEls.rotation.textContent = formatRotation(po);
+  infoEls.tilt.textContent = `${numberKo(p.axialTiltDeg, 1)}°`;
+  infoEls.facts.replaceChildren(...p.facts.map((text) => {
+    const li = document.createElement('li');
+    li.textContent = text;
+    return li;
+  }));
+  updateInfoLive(po);
+}
+
+function updateInfoLive(po) {
+  infoEls.distance.textContent = `${numberKo(po.distAU, 4)} AU`;
+  infoEls.eccentricity.textContent = numberKo(elementsAtJd(po.data, state.jd, eccScratch).e, 4);
+}
+
+// 선택과 카메라 이동 — 선택 시 행성을 따라가고, 해제 시 전체 보기로 복귀
+const CAMERA_TWEEN_SEC = 1.4;
+const rig = {
+  planet: null,
+  returning: false,
+  t: 1,
+  fromTarget: new THREE.Vector3(),
+  fromDir: new THREE.Vector3(),
+  fromDist: 1,
+  lastRadius: 1,
+  lastViewFactor: 1
+};
+const camOffset = new THREE.Vector3();
+const camDir = new THREE.Vector3();
+const ORIGIN = new THREE.Vector3(0, 0, 0);
+const followDistance = (po) => po.radiusVis * (po.data.hasRing ? 7 : 5);
+
+function selectPlanet(po) {
+  rig.planet = po;
+  rig.returning = false;
+  rig.t = 0;
+  rig.fromTarget.copy(controls.target);
+  rig.fromDist = camera.position.distanceTo(controls.target);
+  rig.lastRadius = po.radiusVis;
+  controls.enablePan = false;
+  for (const other of planetObjects) {
+    const active = other === po;
+    other.axis.visible = active;
+    other.labelEl.classList.toggle('active', active);
+    planetButtons.get(other.data.id).setAttribute('aria-pressed', String(active));
+  }
+  fillInfoPanel(po);
+  infoPanelEl.hidden = false;
+}
+
+function deselectPlanet() {
+  if (!rig.planet) return;
+  camOffset.subVectors(camera.position, controls.target);
+  rig.fromTarget.copy(controls.target);
+  rig.fromDist = camOffset.length();
+  rig.fromDir.copy(camOffset).normalize();
+  rig.planet = null;
+  rig.returning = true;
+  rig.t = 0;
+  controls.enablePan = true;
+  for (const po of planetObjects) {
+    po.axis.visible = false;
+    po.labelEl.classList.remove('active');
+    planetButtons.get(po.data.id).setAttribute('aria-pressed', 'false');
+  }
+  infoPanelEl.hidden = true;
+}
+
+document.getElementById('overviewBtn').addEventListener('click', deselectPlanet);
+document.getElementById('infoClose').addEventListener('click', deselectPlanet);
+window.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape') deselectPlanet();
+});
+
+// 클릭 선택 — 드래그(회전)와 구분하기 위해 이동 거리·시간을 본다
+const raycaster = new THREE.Raycaster();
+const pointerNdc = new THREE.Vector2();
+const closestPoint = new THREE.Vector3();
+let pointerDown = null;
+renderer.domElement.addEventListener('pointerdown', (ev) => {
+  if (!ev.isPrimary) { pointerDown = null; return; }
+  pointerDown = { x: ev.clientX, y: ev.clientY, t: performance.now() };
+});
+renderer.domElement.addEventListener('pointerup', (ev) => {
+  if (!ev.isPrimary || !pointerDown) return;
+  const moved = Math.hypot(ev.clientX - pointerDown.x, ev.clientY - pointerDown.y);
+  const elapsed = performance.now() - pointerDown.t;
+  pointerDown = null;
+  if (moved > 6 || elapsed > 600) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointerNdc.set(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
+  raycaster.setFromCamera(pointerNdc, camera);
+  const hits = raycaster.intersectObjects(hitMeshes, false);
+  if (hits.length === 0) return;
+  // 히트 영역이 겹치면 광선에 가장 가까운(히트 반지름 대비) 행성을 고른다
+  let best = null, bestScore = Infinity;
+  for (const hit of hits) {
+    const po = planetById.get(hit.object.userData.planetId);
+    const score = raycaster.ray.distanceToPoint(po.group.position) / hit.object.scale.x;
+    if (score < bestScore) { bestScore = score; best = po; }
+  }
+  if (best) selectPlanet(best);
+});
+
+// 화면 크기
+let viewW = window.innerWidth, viewH = window.innerHeight;
+function onResize() {
+  viewW = window.innerWidth;
+  viewH = window.innerHeight;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(viewW, viewH);
+  camera.aspect = viewW / viewH;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', onResize);
+
+// HUD(날짜·정보 패널 실시간 값)는 초당 10회만 갱신
+let lastHudMs = -1e9;
+function updateHud(nowMs) {
+  if (nowMs - lastHudMs < 100) return;
+  lastHudMs = nowMs;
+  const d = jdToDate(state.jd);
+  dateTextEl.textContent = `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`;
+  if (rig.planet) updateInfoLive(rig.planet);
+}
+
+// 이름 라벨 — 행성의 화면 좌표에 DOM 요소를 겹쳐 둔다
+const labelPoint = new THREE.Vector3();
+function updateLabels() {
+  const show = labelToggle.checked;
+  for (const po of planetObjects) {
+    let visible = false;
+    if (show) {
+      labelPoint.copy(po.group.position).project(camera);
+      visible = labelPoint.z < 1 && Math.abs(labelPoint.x) < 1.05 && Math.abs(labelPoint.y) < 1.05;
+    }
+    if (visible !== po.labelShown) {
+      po.labelEl.style.display = visible ? '' : 'none';
+      po.labelShown = visible;
+    }
+    if (visible) {
+      const radiusPx = (po.radiusVis / (po.camDist * tanHalfFov)) * (viewH / 2);
+      const x = (labelPoint.x * 0.5 + 0.5) * viewW + Math.min(radiusPx, 400) + 6;
+      const y = (-labelPoint.y * 0.5 + 0.5) * viewH - 8;
+      po.labelEl.style.transform = `translate(${x}px, ${y}px)`;
+    }
+  }
+}
+
+// ============================================================
+// 6. 애니메이션 루프 — 시간 진행, 위치·자전·스케일 갱신, 카메라, 렌더
+// ============================================================
+const posScratch = { x: 0, y: 0, z: 0, r: 0 };
+const HIT_PIXEL_RADIUS = 14;
+
+function updateBodies(k) {
+  const sunRadius = Math.exp((1 - k) * SUN_LN_RADIUS_LEARN + k * SUN_LN_RADIUS_REAL);
+  sunMesh.scale.setScalar(sunRadius);
+
+  const spinBase = (state.jd - J2000_JD) * 24;
+  const hitPerPixel = 2 * tanHalfFov * HIT_PIXEL_RADIUS / viewH;
+  for (const po of planetObjects) {
+    const p = po.data;
+    computePlanetPosition(p, state.jd, posScratch);
+    po.distAU = posScratch.r;
+    // 황도(x, y, z) → 씬(x, z, −y), 거리는 현재 스케일 보간값으로 변환
+    const f = Math.exp(lnMapDistance(Math.log(posScratch.r), k)) / posScratch.r;
+    po.group.position.set(posScratch.x * f, posScratch.z * f, -posScratch.y * f);
+
+    const radius = Math.exp((1 - k) * po.lnRadiusLearn + k * po.lnRadiusReal);
+    po.radiusVis = radius;
+    po.body.scale.setScalar(radius);
+    if (po.ring) po.ring.scale.setScalar(radius);
+    po.axis.scale.setScalar(radius);
+    // 자전: 항상 양의 방향으로 돌고, 역자전은 기울기(>90°)가 만든다
+    po.body.rotation.y = ((spinBase / p.rotationPeriodHours) % 1) * TWO_PI;
+
+    po.camDist = camera.position.distanceTo(po.group.position);
+    po.hit.scale.setScalar(Math.max(radius * (p.hasRing ? RING_OUTER : 1), po.camDist * hitPerPixel));
+  }
+}
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+function updateCameraRig(dt, k) {
+  const vf = viewFactor(k);
+  const planet = rig.planet;
+  if (planet) {
+    camOffset.subVectors(camera.position, controls.target);
+    if (rig.t < 1) {
+      rig.t = Math.min(1, rig.t + dt / CAMERA_TWEEN_SEC);
+      const e = easeInOutCubic(rig.t);
+      controls.target.lerpVectors(rig.fromTarget, planet.group.position, e);
+      camOffset.setLength(Math.exp(lerp(Math.log(rig.fromDist), Math.log(followDistance(planet)), e)));
+    } else {
+      controls.target.copy(planet.group.position);
+      camOffset.multiplyScalar(planet.radiusVis / rig.lastRadius);   // 스케일 전환 중에도 같은 크기로 보이게
+    }
+    rig.lastRadius = planet.radiusVis;
+    camera.position.addVectors(controls.target, camOffset);
+    controls.minDistance = planet.radiusVis * (planet.data.hasRing ? 2.7 : 1.4);
+  } else {
+    if (rig.returning) {
+      rig.t = Math.min(1, rig.t + dt / CAMERA_TWEEN_SEC);
+      const e = easeInOutCubic(rig.t);
+      controls.target.lerpVectors(rig.fromTarget, ORIGIN, e);
+      camDir.lerpVectors(rig.fromDir, DEFAULT_VIEW_DIR, e).normalize();
+      const len = Math.exp(lerp(Math.log(rig.fromDist), Math.log(overviewDistance(k)), e));
+      camera.position.copy(camDir).multiplyScalar(len).add(controls.target);
+      if (rig.t >= 1) rig.returning = false;
+    } else if (vf !== rig.lastViewFactor) {
+      const ratio = vf / rig.lastViewFactor;       // 스케일 전환 중 전체 보기 구도를 유지
+      camera.position.multiplyScalar(ratio);
+      controls.target.multiplyScalar(ratio);
+    }
+    controls.minDistance = Math.exp(lerp(Math.log(3), Math.log(0.02), k));
+  }
+  rig.lastViewFactor = vf;
+  controls.maxDistance = overviewDistance(k) * 2.5;
+}
+
+let lastFrameMs = performance.now();
+function animate(nowMs) {
+  const dt = Math.min((nowMs - lastFrameMs) / 1000, 0.1);
+  lastFrameMs = nowMs;
+
+  if (state.playing) state.jd += dt * SPEED_PRESETS[state.speedIndex].daysPerSec;
+  updateScaleTransition(nowMs);
+  const k = state.scaleMix;
+
+  refreshOrbits(state.jd, k);
+  updateBodies(k);
+  updateCameraRig(dt, k);
+  controls.update();
+  starField.position.copy(camera.position);
+
+  updateLabels();
+  updateHud(nowMs);
+  renderer.render(scene, camera);
+}
+
+if (new URLSearchParams(window.location.search).has('selftest')) runSelfTest();
+renderer.setAnimationLoop(animate);
+</script>
+</body>
+</html>
