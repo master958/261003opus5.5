@@ -1,0 +1,8 @@
+# Netlify 배포 설정 — 사이트 루트(/)로 접속하면 solar-system.html 을 보여 준다.
+[build]
+  publish = "."
+
+[[redirects]]
+  from = "/"
+  to = "/solar-system.html"
+  status = 200
